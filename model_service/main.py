@@ -1,93 +1,91 @@
+import time
+import uuid
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
-import mlflow
+
 import mlflow.sklearn
-import os
 import pandas as pd
-from schemas import BankPredictionRequest, PredictionResponse
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy.orm import Session
 
-# Globals populated at startup
-ml_model = None
-operating_threshold: float = 0.5
+import sys
+from pathlib import Path
 
+# 1. Get the absolute paths
+CURRENT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = CURRENT_DIR.parent
 
-class DummyModel:
-    """Fallback for local development before the model is trained and registered."""
-    def predict(self, df):
-        return [0] * len(df)
+# 2. Force BOTH into Python's system path
+sys.path.append(str(ROOT_DIR))
+sys.path.append(str(CURRENT_DIR))
 
-    def predict_proba(self, df):
-        return [[0.8, 0.2]] * len(df)
+from core.config import settings
+from core.database import get_db, engine, Base
+from core.models import PredictionLog
+from model_service.shemas import BankPredictionRequest, BankPredictionResponse
 
+# Automatically create tables in Postgres if they don't exist yet
+Base.metadata.create_all(bind=engine)
 
-def _load_threshold(model_uri: str) -> float:
-    """Read the tuned operating threshold from the model card stored in the run."""
-    try:
-        client = mlflow.tracking.MlflowClient()
-        # model_uri is "models:/bank-classifier@Production" — extract name + alias
-        model_name = model_uri.split("/")[1].split("@")[0]
-        alias      = model_uri.split("@")[1]
-        mv = client.get_model_version_by_alias(model_name, alias)
-        run = client.get_run(mv.run_id)
-        threshold = run.data.metrics.get("threshold", 0.5)
-        print(f"✅ Loaded threshold from MLflow run: {threshold}")
-        return float(threshold)
-    except Exception as e:
-        print(f"⚠️  Could not load threshold from MLflow ({e}). Defaulting to 0.5.")
-        return 0.5
-
+# Global variables to hold our model in memory
+pipeline = None
+OPERATING_THRESHOLD = 0.07  # The exact threshold we tuned in train.py
+MODEL_URI = "models:/bank-classifier@Production"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global ml_model, operating_threshold
-
-    # MLflow 3.x alias URI: models:/name@alias
-    model_uri = os.getenv("MODEL_URI", "models:/bank-classifier@Production")
-    mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000"))
-
-    try:
-        ml_model = mlflow.sklearn.load_model(model_uri)
-        operating_threshold = _load_threshold(model_uri)
-        print(f"✅ Loaded model from {model_uri}  (threshold={operating_threshold})")
-    except Exception as e:
-        print(f"⚠️  MLflow model not found or registry unreachable: {e}")
-        print("🔧 Falling back to DummyModel for API development.")
-        ml_model = DummyModel()
-        operating_threshold = 0.5
-
+    """Lifecycle manager: Loads the model into memory before the API accepts requests."""
+    global pipeline
+    print(f"Connecting to MLflow at {settings.mlflow_tracking_uri}...")
+    mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
+    
+    print(f"Loading model from {MODEL_URI}...")
+    pipeline = mlflow.sklearn.load_model(MODEL_URI)
+    print("✅ Model loaded successfully!")
     yield
-
-    ml_model = None
-
+    print("Shutting down model service...")
 
 app = FastAPI(title="Drift Triage Model Service", lifespan=lifespan)
 
-
-@app.post("/predict", response_model=PredictionResponse)
-async def predict(request: BankPredictionRequest):
-    if ml_model is None:
-        raise HTTPException(status_code=503, detail="Model not loaded into memory.")
-
-    # by_alias=True preserves dot-notation column names (emp.var.rate, etc.)
-    # that the trained sklearn pipeline expects.
-    input_data = request.model_dump(by_alias=True)
-    df = pd.DataFrame([input_data])
-
+@app.post("/predict", response_model=BankPredictionResponse)
+def predict(request: BankPredictionRequest, db: Session = Depends(get_db)):
+    """Accepts a customer record, predicts churn, and logs the result to Postgres."""
+    start_time = time.perf_counter()
+    request_id = str(uuid.uuid4())
+    
+    # 1. Prepare data for the model 
+    # Use by_alias=True so fields like 'emp_var_rate' become 'emp.var.rate' for the model
+    input_dict = request.model_dump(by_alias=True)
+    df = pd.DataFrame([input_dict])
+    
+    # 2. Run the prediction
     try:
-        probability = float(ml_model.predict_proba(df)[0][1])
-        prediction  = int(probability >= operating_threshold)
+        proba = float(pipeline.predict_proba(df)[0, 1])
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Model execution failed: {str(e)}")
-
-    # TODO Phase 3: log prediction to Postgres
-
-    return {"prediction": prediction, "probability": probability}
-
-
-@app.get("/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "model_loaded": ml_model is not None and not isinstance(ml_model, DummyModel),
-        "threshold": operating_threshold,
-    }
+        raise HTTPException(status_code=500, detail=f"Model error: {str(e)}")
+        
+    prediction = 1 if proba >= OPERATING_THRESHOLD else 0
+    latency = (time.perf_counter() - start_time) * 1000
+    
+    # 3. Log everything to Postgres
+    # Use standard dump here so JSON keys stay clean in the database
+    log_entry = PredictionLog(
+        request_id=request_id,
+        model_version=MODEL_URI,
+        input_data=request.model_dump(), 
+        prediction=prediction,
+        probability=proba,
+        threshold_used=OPERATING_THRESHOLD,
+        latency_ms=latency
+    )
+    db.add(log_entry)
+    db.commit()
+    
+    # 4. Return the response to the caller
+    return BankPredictionResponse(
+        request_id=request_id,
+        model_uri=MODEL_URI,
+        threshold_used=OPERATING_THRESHOLD,
+        prediction=prediction,
+        probability=proba,
+        latency_ms=latency
+    )

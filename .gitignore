@@ -1,6 +1,8 @@
 # Claude plan files
 .claude/
 
+.vscode/
+
 # Data — raw CSVs are large; never commit them
 data/raw/*.csv
 data/*.joblib
