@@ -12,6 +12,7 @@ dependencies = [
     "psycopg2-binary>=2.9.12",
     "pydantic>=2.13.3",
     "pydantic-settings>=2.14.0",
+    "requests>=2.33.1",
     "scikit-learn>=1.8.0",
     "scipy>=1.17.1",
     "sqlalchemy>=2.0.49",

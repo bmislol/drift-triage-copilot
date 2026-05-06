@@ -1,16 +1,24 @@
 import time
 import uuid
 import pandas as pd
-from fastapi import HTTPException
+from fastapi import HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.schemas import BankPredictionRequest, BankPredictionResponse
 from app.repos import predict_repo
+from core.models import PredictionLog
+from app.services import drift_svc
 
 OPERATING_THRESHOLD = 0.07
 MODEL_URI = "models:/bank-classifier@Production"
 
-def make_prediction(db: Session, pipeline, request_data: BankPredictionRequest) -> BankPredictionResponse:
+def make_prediction(
+        db: Session, 
+        pipeline, 
+        request_data: BankPredictionRequest, 
+        background_tasks: BackgroundTasks
+    ) -> BankPredictionResponse:
+
     """Handles data prep, ML inference, and orchestrates database logging."""
     start_time = time.perf_counter()
     request_id = str(uuid.uuid4())
@@ -29,7 +37,7 @@ def make_prediction(db: Session, pipeline, request_data: BankPredictionRequest) 
     latency = (time.perf_counter() - start_time) * 1000
     
     # 3. Log to Postgres using the Repo layer
-    predict_repo.log_prediction(
+    log_entry = predict_repo.log_prediction(
         db=db,
         request_id=request_id,
         model_version=MODEL_URI,
@@ -39,6 +47,14 @@ def make_prediction(db: Session, pipeline, request_data: BankPredictionRequest) 
         threshold_used=OPERATING_THRESHOLD,
         latency_ms=latency
     )
+
+    CHECK_INTERVAL = 5
+
+    total_predictions = db.query(PredictionLog).count()
+
+    if total_predictions > 0 and total_predictions % CHECK_INTERVAL == 0:
+        print(f"⚡ Reached {total_predictions} total predictions! Queueing drift check...")
+        background_tasks.add_task(drift_svc.evaluate_and_alert)
     
     # 4. Return formatted response
     return BankPredictionResponse(

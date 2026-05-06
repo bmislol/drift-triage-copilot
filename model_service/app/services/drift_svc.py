@@ -9,6 +9,9 @@ from sqlalchemy.orm import Session
 from app.repos import drift_repo
 from app.schemas import DriftReportResponse, FeatureDrift
 
+import requests
+from core.database import SessionLocal
+
 # Navigate up from app/services/ to the root data folder
 STATS_PATH = Path(__file__).resolve().parents[3] / "data" / "reference_stats.json"
 
@@ -131,3 +134,35 @@ def generate_drift_report(db: Session, limit: int = 500) -> DriftReportResponse:
         overall_severity=overall_status,
         features=feature_results
     )
+
+def evaluate_and_alert():
+    """Runs in the background. Calculates drift and fires webhook if needed."""
+    # 1. Open a fresh DB session for the background worker
+    db = SessionLocal()
+    try:
+        # 2. Generate the report
+        print("🔍 Running scheduled background drift check...")
+        report = generate_drift_report(db, limit=500)
+        
+        # 3. Check for severity
+        if report.overall_severity in ["warning", "critical"]:
+            print(f"⚠️ {report.overall_severity.upper()} drift detected! Firing webhook...")
+            
+            # TODO: Replace with your actual LangGraph Agent container URL in Phase 4
+            webhook_url = "http://localhost:8001/webhook/drift" 
+            
+            # Prepare payload (ensure datetime is a string for JSON)
+            payload = report.model_dump()
+            payload["timestamp"] = payload["timestamp"].isoformat()
+            
+            try:
+                # 4. Fire the HTTP POST to the agent
+                requests.post(webhook_url, json=payload, timeout=5)
+                print("✅ Webhook successfully delivered to Triage Agent.")
+            except Exception as e:
+                print(f"❌ Failed to reach Agent Webhook: {e}")
+        else:
+            print("✅ Drift check passed. Distributions look normal.")
+    finally:
+        # Always close the background session
+        db.close()
