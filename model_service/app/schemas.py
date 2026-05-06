@@ -1,5 +1,7 @@
 # model_service/schemas.py
 from pydantic import BaseModel, ConfigDict, Field
+from typing import Dict, Any
+from datetime import datetime
 
 class BankPredictionRequest(BaseModel):
     """A validated prediction request for the UCI Bank Marketing dataset."""
@@ -40,3 +42,15 @@ class BankPredictionResponse(BaseModel):
     prediction: int
     probability: float
     latency_ms: float
+
+class FeatureDrift(BaseModel):
+    metric: str      # "psi" or "chi2"
+    score: float     # The calculated value (PSI score or Chi2 p-value)
+    severity: str    # "none", "warning", "critical"
+    details: Dict[str, Any] = {} # Extra context if needed
+
+class DriftReportResponse(BaseModel):
+    timestamp: datetime
+    record_count: int
+    overall_severity: str
+    features: Dict[str, FeatureDrift]
