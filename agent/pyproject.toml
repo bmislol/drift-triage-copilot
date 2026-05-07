@@ -4,4 +4,15 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.136.1",
+    "langchain-anthropic>=1.4.3",
+    "langgraph>=1.1.10",
+    "langgraph-checkpoint-postgres>=3.0.5",
+    "psycopg>=3.3.4",
+    "psycopg2-binary>=2.9.12",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.0",
+    "redis>=7.4.0",
+    "uvicorn>=0.46.0",
+]
