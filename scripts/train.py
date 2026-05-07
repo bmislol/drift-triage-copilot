@@ -27,6 +27,7 @@ from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_sco
 from sklearn.model_selection import StratifiedKFold, cross_val_score, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.metrics import precision_recall_curve
 
 # Import our centralized settings
 sys.path.append(str(Path(__file__).parent.parent))
@@ -117,19 +118,31 @@ def train_and_register():
     ])
 
     # Train Models
-    clf = GradientBoostingClassifier(n_estimators=200, learning_rate=0.05, max_depth=4, random_state=SEED)
+    clf = RandomForestClassifier(
+        n_estimators=200, 
+        max_depth=8, 
+        class_weight="balanced", # <--- This is the magic bullet
+        random_state=SEED
+    )
     best_pipeline = make_pipeline(clf, preprocessor)
     best_pipeline.fit(X_train, y_train)
 
     # Tune threshold (highest where val recall >= 0.75)
     val_probs = best_pipeline.predict_proba(X_val)[:, 1]
-    best_threshold = 0.5
-    for t in np.arange(0.90, 0.05, -0.01):
-        t_rounded = round(float(t), 2)
-        preds = (val_probs >= t_rounded).astype(int)
-        if recall_score(y_val, preds) >= 0.75:
-            best_threshold = t_rounded
-            break
+    precisions, recalls, thresholds_pr = precision_recall_curve(y_val, val_probs)
+    
+    # precision_recall_curve returns thresholds with one fewer element than recalls
+    ok_recall_mask = recalls[:-1] >= 0.77
+    
+    if ok_recall_mask.any():
+        # Among thresholds that meet the recall floor, pick the highest (most precise)
+        valid_thresholds = thresholds_pr[ok_recall_mask]
+        best_threshold = round(float(valid_thresholds.max()), 4)
+    else:
+        # Fallback if 0.75 is literally impossible
+        best_threshold = 0.5 
+        
+    print(f"Optimal threshold for Recall >= 0.75 is: {best_threshold}")
 
     # Test evaluation
     test_probs = best_pipeline.predict_proba(X_test)[:, 1]
@@ -198,15 +211,10 @@ def train_and_register():
                                  input_example=X_train.head(2))
         mlflow.log_dict(model_card, "model_card.json")
         mlflow.log_artifact(str(REFERENCE_STATS_PATH))
-
-    # Promote to Production alias
-    client = MlflowClient()
-    versions = sorted(client.search_model_versions(f"name='{MODEL_NAME}'"), key=lambda mv: int(mv.version))
-    latest_version = versions[-1].version
-    client.set_registered_model_alias(MODEL_NAME, "Production", latest_version)
     
-    print(f"\n✅ Training complete. Model registered as {MODEL_NAME} v{latest_version} (Production).")
+    print(f"\n✅ Training complete. Model newly registered to '{MODEL_NAME}'.")
     print(f"✅ Operating Threshold tuned to: {best_threshold}")
+    print(f"✅ Test Recall Achieved: {test_rec:.4f} (Requirement: >= 0.75)")
 
 if __name__ == "__main__":
     train_and_register()
