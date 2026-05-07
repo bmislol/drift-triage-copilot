@@ -35,6 +35,8 @@ from core.config import settings
 # Paths and Constants
 from core.config import RAW_DATA_PATH, REFERENCE_STATS_PATH, ARTIFACT_PATH
 
+mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
+
 MODEL_NAME     = "bank-classifier"
 EXPERIMENT     = "bank-classifier"
 SEED           = 42
@@ -188,6 +190,7 @@ def train_and_register():
 
     with mlflow.start_run(run_name="gbm-v1") as run:
         mlflow.log_metric("test_auc", test_auc)
+        mlflow.log_metric("test_recall", test_rec)
         mlflow.log_metric("threshold", best_threshold)
         for k, v in env_meta.items(): mlflow.set_tag(f"env.{k}", v)
         mlflow.sklearn.log_model(sk_model=best_pipeline, artifact_path="model",

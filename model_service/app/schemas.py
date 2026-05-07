@@ -54,3 +54,9 @@ class DriftReportResponse(BaseModel):
     record_count: int
     overall_severity: str
     features: Dict[str, FeatureDrift]
+
+class PromoteResponse(BaseModel):
+    version: int
+    status: str          # "promoted" or "rejected"
+    recall: float
+    message: str

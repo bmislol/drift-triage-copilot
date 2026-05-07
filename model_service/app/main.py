@@ -16,7 +16,7 @@ sys.path.append(str(SERVICE_DIR))
 
 from core.config import settings
 from core.database import engine, Base
-from app.api import predict_api, drift_api
+from app.api import predict_api, drift_api, promote_api
 
 # Automatically create tables in Postgres
 Base.metadata.create_all(bind=engine)
@@ -46,3 +46,4 @@ app = FastAPI(title="Drift Triage Model Service", lifespan=lifespan)
 # Register our endpoints
 app.include_router(predict_api.router)
 app.include_router(drift_api.router)
+app.include_router(promote_api.router)
