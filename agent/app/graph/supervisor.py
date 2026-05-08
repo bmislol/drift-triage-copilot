@@ -32,4 +32,7 @@ def supervisor_node(state: AgentState):
     })
     
     response = structured_llm.invoke([HumanMessage(content=formatted_prompt)])
+    
+    print(f"🧠 Supervisor decided to route to: {response['next']}")
+
     return {"messages": [HumanMessage(content=f"Supervisor decided: {response['next']}", name="Supervisor")], "next": response["next"]}
