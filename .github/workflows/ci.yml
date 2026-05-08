@@ -31,6 +31,12 @@ jobs:
       # 4. Install dependencies and run tests
       - name: Run Tests
         working-directory: ./agent
+        env:
+          POSTGRES_DSN: "postgresql://dummy:dummy@localhost:5432/dummy"
+          REDIS_URL: "redis://localhost:6379/0"
+          MLFLOW_TRACKING_URI: "http://localhost:5000"
+          AGENT_WEBHOOK_URL: "http://localhost:8001/webhook"
+          ANTHROPIC_API_KEY: "sk-ant-dummy-key"
         run: |
           uv sync --no-cache
           PYTHONPATH=.:.. uv run pytest tests/
