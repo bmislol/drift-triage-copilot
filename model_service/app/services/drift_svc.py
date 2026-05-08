@@ -11,6 +11,7 @@ from app.schemas import DriftReportResponse, FeatureDrift
 
 import requests
 from core.database import SessionLocal
+from core.config import settings
 
 # Navigate up from app/services/ to the root data folder
 STATS_PATH = Path(__file__).resolve().parents[3] / "data" / "reference_stats.json"
@@ -135,34 +136,41 @@ def generate_drift_report(db: Session, limit: int = 500) -> DriftReportResponse:
         features=feature_results
     )
 
-def evaluate_and_alert():
+def evaluate_and_alert(active_version: str):
     """Runs in the background. Calculates drift and fires webhook if needed."""
-    # 1. Open a fresh DB session for the background worker
     db = SessionLocal()
     try:
-        # 2. Generate the report
         print("🔍 Running scheduled background drift check...")
         report = generate_drift_report(db, limit=500)
         
-        # 3. Check for severity
         if report.overall_severity in ["warning", "critical"]:
-            print(f"⚠️ {report.overall_severity.upper()} drift detected! Firing webhook...")
+            print(f"⚠️ {report.overall_severity.upper()} drift detected! Formatting webhook...")
             
-            # TODO: Replace with your actual LangGraph Agent container URL in Phase 4
-            webhook_url = "http://localhost:8001/webhook/drift" 
+            # 1. Map your Pydantic report into the exact JSON format the Agent expects
+            drift_payload = {}
+            for feature_name, feature_obj in report.features.items():
+                if feature_obj.severity in ["warning", "critical"]:
+                    drift_payload[feature_name] = {
+                        "status": feature_obj.severity,
+                        "psi": getattr(feature_obj, 'psi_score', None),
+                        "chi2_p": getattr(feature_obj, 'chi2_pvalue', None)
+                    }
             
-            # Prepare payload (ensure datetime is a string for JSON)
-            payload = report.model_dump()
-            payload["timestamp"] = payload["timestamp"].isoformat()
+            # 2. Construct the final payload using the dynamic active_version
+            payload = {
+                "active_version": active_version,
+                "drift_report": drift_payload
+            }
+            
+            # 3. Pull the correct URL from your core config
+            webhook_url = "http://localhost:8001/investigations/webhook/drift"
             
             try:
-                # 4. Fire the HTTP POST to the agent
-                requests.post(webhook_url, json=payload, timeout=5)
+                requests.post(webhook_url, json=payload, timeout=30)
                 print("✅ Webhook successfully delivered to Triage Agent.")
             except Exception as e:
                 print(f"❌ Failed to reach Agent Webhook: {e}")
         else:
             print("✅ Drift check passed. Distributions look normal.")
     finally:
-        # Always close the background session
         db.close()

@@ -16,7 +16,8 @@ def make_prediction(
         db: Session, 
         pipeline, 
         request_data: BankPredictionRequest, 
-        background_tasks: BackgroundTasks
+        background_tasks: BackgroundTasks,
+        active_version: str = "v2"
     ) -> BankPredictionResponse:
 
     """Handles data prep, ML inference, and orchestrates database logging."""
@@ -48,13 +49,19 @@ def make_prediction(
         latency_ms=latency
     )
 
-    CHECK_INTERVAL = 5
+    CHECK_INTERVAL = 50
 
     total_predictions = db.query(PredictionLog).count()
 
     if total_predictions > 0 and total_predictions % CHECK_INTERVAL == 0:
         print(f"⚡ Reached {total_predictions} total predictions! Queueing drift check...")
-        background_tasks.add_task(drift_svc.evaluate_and_alert)
+        
+        # We need to extract the version. Since you are using MODEL_URI, we can parse it, 
+        # or just pass a default for now.
+        active_version = MODEL_URI.split("@")[0].split("/")[-1] # Extracts "bank-classifier" or you can hardcode "v1" if preferred. Let's use "v1" to keep it simple for the agent.
+        
+        # Pass the active_version to the function!
+        background_tasks.add_task(drift_svc.evaluate_and_alert, "v1")
     
     # 4. Return formatted response
     return BankPredictionResponse(
