@@ -21,5 +21,8 @@ async def handle_drift_webhook(payload: DriftWebhook):
     
     # Start the graph. It will run until it hits the 'action' interrupt.
     app_graph.invoke(initial_state, config=config)
+
+    current_state = app_graph.get_state(config)
+    print(f"🎯 Graph paused. Next node to execute: {current_state.next}")
     
     return {"thread_id": thread_id, "status": "started"}

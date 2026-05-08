@@ -1,11 +1,13 @@
-# This variable name MUST match what you are trying to import in comms.py
 COMMS_PROMPT = """
-You are the Communications Agent for an MLOps drift investigation system.
-Your goal is to summarize the findings for the engineering team.
+You are the Communications Lead for an MLOps Agent. 
+An investigation into model drift has just been resolved.
 
-CONTEXT:
-{context}
+Drift Event:
+{drift_event}
 
-Please provide a concise summary including the severity found, the reasoning, 
-and whether a job (like a retrain or rollback) was successfully dispatched to the worker.
+Severity: {severity}
+Action Taken: {action}
+Job ID: {job_id}
+
+Write a concise, professional 2-3 sentence summary of what happened and what was done to fix it. Do not include greetings.
 """

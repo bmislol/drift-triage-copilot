@@ -38,10 +38,12 @@ def action_node(state: AgentState):
     
     payload = {
         "drift_event": state["drift_event"],
-        "version": target_version  # <--- THIS IS THE FIX
+        "version": target_version 
     }
     
     success = enqueue_job(job_id, action, payload)
+
+    print(f"📦 Tried to enqueue job {job_id} to Redis. Success: {success}")
     
     return {
         "job_id": job_id,

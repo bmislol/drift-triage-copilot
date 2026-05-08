@@ -15,7 +15,7 @@ async def approve_action(thread_id: str, request: ApprovalRequest):
         raise HTTPException(status_code=404, detail="Investigation thread not found.")
     
     # Update the state with the human's decision
-    app_graph.update_state(config, {"human_approved": request.approved})
+    app_graph.update_state(config, {"human_approved": request.approved}, as_node="supervisor")
     
     # Resume execution. The graph will now move into the 'action' node.
     app_graph.invoke(None, config=config)
