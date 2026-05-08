@@ -1,0 +1,119 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # 1. INFRASTRUCTURE (With Persistent Volumes)
+  # ==========================================
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: drift_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data  # <--- Keeps Postgres data safe!
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d drift_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data  # <--- Keeps Redis queues safe!
+
+  mlflow:
+    image: python:3.12-slim
+    command: >
+      bash -c "pip install mlflow && mlflow ui --host 0.0.0.0 --port 5000"
+    volumes:
+      - ./scripts:/scripts  # <--- Your scripts folder acts as the volume here
+    working_dir: /scripts
+    ports:
+      - "5000:5000"
+
+  # ==========================================
+  # 2. YOUR MICROSERVICES
+  # ==========================================
+  model_service:
+    build: 
+      context: ./model_service
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./core:/app/core  # <--- Injects the core folder so it can find models/database
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_DSN=postgresql://admin:password@postgres:5432/drift_db
+      - REDIS_URL=redis://redis:6379/0
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - AGENT_WEBHOOK_URL=http://agent:8001/investigations/webhook/drift
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # <--- Automatically run the init script BEFORE starting the server
+    command: bash -c "python core/init_db.py && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  agent:
+    build: 
+      context: ./agent
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    volumes:
+      - ./core:/app/core  # <--- Injects the core folder
+    environment:
+      - POSTGRES_DSN=postgresql://admin:password@postgres:5432/drift_db
+      - REDIS_URL=redis://redis:6379/0
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build: 
+      context: ./worker
+    volumes:
+      - ./core:/app/core  # <--- Injects the core folder
+      - ./scripts:/app/scripts
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_DSN=postgresql://admin:password@postgres:5432/drift_db
+      - REDIS_URL=redis://redis:6379/0
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    depends_on:
+      - redis
+      - mlflow
+
+  dashboard:
+    build: 
+      context: ./dashboard
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./core:/app/core  # <--- Injects the core folder
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_DSN=postgresql://admin:password@postgres:5432/drift_db
+      - REDIS_URL=redis://redis:6379/0
+      - MODEL_API_URL=http://model_service:8000/predict
+      - AGENT_API_URL=http://agent:8001/approve
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+# ==========================================
+# 3. VOLUME DECLARATIONS
+# ==========================================
+volumes:
+  pg_data:
+  redis_data:
