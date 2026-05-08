@@ -33,4 +33,4 @@ jobs:
         working-directory: ./agent
         run: |
           uv sync --no-cache
-          PYTHONPATH=. uv run pytest tests
+          PYTHONPATH=.:.. uv run pytest tests/
