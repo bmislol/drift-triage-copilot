@@ -146,7 +146,14 @@ elif page == "🔮 Manual Prediction":
                 res = httpx.post(MODEL_API_URL, json=payload)
                 if res.status_code == 200:
                     data = res.json()
-                    st.success(f"**Prediction:** {'Churn' if data['prediction'] == 1 else 'No Churn'} (Prob: {data['probability']:.3f}) | Latency: {data['latency_ms']:.2f}ms")
+                    prob = data['probability']
+                    latency = data['latency_ms']
+                    
+                    # Nice, human-readable statements based on 0.5 threshold
+                    if prob < 0.5:
+                        st.success(f"🌟 **Good News!** It looks like this customer is happy and will stay. (Churn Risk: No) | ⚡ {latency:.1f}ms")
+                    else:
+                        st.warning(f"⚠️ **Attention Needed:** This customer is at high risk of churning. (Churn Risk: Yes) | ⚡ {latency:.1f}ms")
                 else:
                     st.error("Model Service Error.")
             except Exception as e:
