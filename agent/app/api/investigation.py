@@ -3,6 +3,9 @@ from fastapi import APIRouter, HTTPException
 from app.graph.workflow import app_graph
 from app.schemas import DriftWebhook
 
+from core.database import SessionLocal
+from core.models import Investigation
+
 router = APIRouter(prefix="/investigations", tags=["Investigations"])
 
 @router.post("/webhook/drift")
@@ -24,5 +27,23 @@ async def handle_drift_webhook(payload: DriftWebhook):
 
     current_state = app_graph.get_state(config)
     print(f"🎯 Graph paused. Next node to execute: {current_state.next}")
+
+    if current_state.values:
+        db = SessionLocal()
+        try:
+            inv = Investigation(
+                thread_id=thread_id,
+                status="open",
+                severity=current_state.values.get("severity", "unknown"),
+                recommended_action=current_state.values.get("recommended_action", "unknown"),
+                summary=f"Agent Reasoning: {current_state.values.get('reasoning', 'Awaiting approval.')}"
+            )
+            db.add(inv)
+            db.commit()
+        except Exception as e:
+            print(f"DB Error: {e}")
+            db.rollback()
+        finally:
+            db.close()
     
     return {"thread_id": thread_id, "status": "started"}

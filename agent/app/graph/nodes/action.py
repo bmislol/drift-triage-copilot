@@ -10,7 +10,12 @@ def action_node(state: AgentState):
     """Dispatches the approved action and generates an execution log."""
     # 1. HIL Check: Only run if approved
     if not state.get("human_approved"):
-        return {"summary": "Action blocked: Awaiting Human Approval."}
+        print("❌ Action explicitly denied by human.")
+        return {
+            "job_id": "DENIED-BY-HUMAN",  # <--- Satisfies the Supervisor!
+            "recommended_action": "denied", # Updates the DB to show it was denied
+            "summary": "The human operator reviewed the drift event and explicitly denied the intervention."
+        }
 
     llm = get_llm()
     action = state["recommended_action"]
