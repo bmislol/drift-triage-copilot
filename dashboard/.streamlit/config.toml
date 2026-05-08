@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#8DA101"        # Everforest Green
+backgroundColor = "#FDF6E3"     # Everforest Hard Light background
+secondaryBackgroundColor = "#F4E8D1" # Slightly darker for the sidebar
+textColor = "#5C6A72"           # Everforest Dark Grey text
+font = "sans serif"
